@@ -70,16 +70,40 @@ Test-set results (2,000 held-out rows, unstable = positive class). One split, se
 | Decision Tree | 0.792 ± 0.012 | 0.803 ± 0.017 | 0.893 ± 0.021 | 0.845 ± 0.008 |
 | Random Forest | 0.914 ± 0.008 | 0.913 ± 0.006 | 0.957 ± 0.007 | 0.935 ± 0.006 |
 
+**10 random train/test splits (seeds 0-9), test-set mean ± std**
+
+| Settings | Model | Accuracy | Unstable recall | F1 | Missed unstable (FN) |
+|---|---|---|---|---|---|
+| Initial | Logistic Regression | 0.813 ± 0.005 | 0.876 ± 0.008 | 0.857 ± 0.004 | 157.6 ± 10.4 |
+| Initial | Decision Tree | 0.797 ± 0.011 | 0.873 ± 0.031 | 0.846 ± 0.010 | 162.6 ± 39.4 |
+| Initial | Random Forest | 0.917 ± 0.008 | 0.957 ± 0.004 | 0.937 ± 0.006 | 54.4 ± 5.5 |
+| Tuned | Logistic Regression | 0.813 ± 0.005 | 0.877 ± 0.008 | 0.857 ± 0.004 | 156.5 ± 10.2 |
+| Tuned | Decision Tree | 0.854 ± 0.008 | 0.892 ± 0.007 | 0.886 ± 0.006 | 137.8 ± 8.7 |
+| Tuned | Random Forest | 0.921 ± 0.007 | 0.957 ± 0.004 | 0.939 ± 0.005 | 54.4 ± 4.9 |
+
+The tuned settings were chosen using the seed-42 training set, so the tuned rows are slightly optimistic on other seeds. The seed-42 split (tables above) was somewhat favorable compared with the 10-seed means.
+
+**Decision threshold (tuned Random Forest, test set, seed 42)**
+
+The default rule predicts "unstable" when the model's probability is at least 0.5. Lowering the threshold catches more unstable conditions at the cost of more false alarms. The threshold of 0.40 was chosen on the training set only, using out-of-fold predictions and the F2 score (which weights recall twice as much as precision), before looking at the test set.
+
+| Threshold | Accuracy | Precision | Recall | F2 | Missed unstable (FN) | False alarms (FP) |
+|---|---|---|---|---|---|---|
+| 0.50 (default) | 0.930 | 0.931 | 0.961 | 0.955 | 50 | 91 |
+| 0.40 | 0.906 | 0.879 | 0.990 | 0.965 | 13 | 174 |
+
+This is the same model at a different operating point, not a better model. Whether 0.40 is preferable depends on how costly a missed unstable condition is compared with a false alarm, which this simulated data cannot say.
+
 Baseline for context: always predicting "unstable" gives 63.8% accuracy.
 
 **Observations**
 - Reaction times (`tau1`-`tau4`) and price elasticities (`g1`-`g4`) show the strongest relationship with instability in the EDA, logistic coefficients, and Random Forest feature importance. Consumer power (`p2`-`p4`) contributes little.
-- The Random Forest is the strongest model by a wide margin, and cross-validation agrees with the test set.
+- The Random Forest is the strongest model by a wide margin. Cross-validation and a 10-seed check agree, with a typical test accuracy of about 0.92 and unstable recall of about 0.96 (seed 42 was slightly favorable at 0.93).
 - Tuning mainly helped the Decision Tree (accuracy 0.792 to 0.852); Logistic Regression and the Random Forest barely changed. The ranking of Logistic Regression vs the Decision Tree on recall is not stable across evaluations.
 - The Random Forest's lead likely reflects nonlinear or interaction effects that the linear model cannot capture, but this was not tested directly.
 - Feature importance describes what the model used, not what causes instability.
 
-Figures are in `reports/figures/`: class counts, box plots by stability, correlation heatmap, feature importance, model comparison, and confusion matrices (initial and tuned versions). Result tables are saved as `reports/results_initial.csv` and `reports/results_tuned.csv`.
+Figures are in `reports/figures/`: class counts, box plots by stability, correlation heatmap, feature importance, model comparison, confusion matrices (initial and tuned versions), and the decision-threshold trade-off. Result tables are saved as `reports/results_initial.csv` and `reports/results_tuned.csv`.
 
 ## Project Structure
 
@@ -89,12 +113,14 @@ GridGuard/
 │   ├── raw/            # original UCI file, never edited (not tracked by git)
 │   └── processed/
 ├── notebooks/
-│   └── gridguard_analysis.ipynb   # EDA, models, cross-validation, tuning
+│   └── gridguard_analysis.ipynb   # EDA, models, cross-validation, tuning, seeds, thresholds
 ├── src/
 │   ├── data_processing.py         # load data, features, leakage checks, split
 │   ├── train.py                   # model definitions (initial and tuned settings)
 │   ├── evaluate.py                # metrics and confusion counts
 │   └── run.py                     # run the whole pipeline from the terminal
+├── tests/
+│   └── test_data_processing.py    # leakage, redundancy, and split checks
 ├── reports/
 │   └── figures/
 ├── requirements.txt
@@ -117,6 +143,9 @@ unzip data/raw/grid_stability.zip -d data/raw
 
 # run the pipeline (tuned settings; add --initial for the initial settings)
 python -m src.run
+
+# run the checks
+python -m pytest -q
 ```
 
 The notebook (`notebooks/gridguard_analysis.ipynb`) expects `data/raw/Data_for_UCI_named.csv` and walks through the analysis step by step.
@@ -125,14 +154,14 @@ The notebook (`notebooks/gridguard_analysis.ipynb`) expects `data/raw/Data_for_U
 
 - The data is **simulated** and generated from fixed mathematical assumptions; features are sampled independently (near-zero correlation between them), unlike real grid telemetry.
 - It covers **one four-node star grid**, so results will not automatically generalize to other grid structures or real grids.
-- Test results come from **one train/test split and one random seed**. Cross-validation spreads are small, but no formal significance tests or confidence intervals have been computed.
+- Headline test results use **one train/test split (seed 42)**, which was slightly favorable; a 10-seed check gives somewhat lower means with small spreads. No formal significance tests or confidence intervals have been computed, and tuned settings were chosen on the seed-42 training set.
 - Models are not calibrated for real operational use, and this project does not include voltage, frequency, weather, demand, or time-series data.
 
 ## Status
 
-Completed: data acquisition, inspection, EDA, leakage-safe preprocessing, three models with test-set evaluation, 5-fold cross-validation, hyperparameter tuning, feature importance, reusable `src/` pipeline.
+Completed: data acquisition, inspection, EDA, leakage-safe preprocessing, three models with test-set evaluation, 5-fold cross-validation, hyperparameter tuning, 10-seed check, decision-threshold analysis, feature importance, reusable `src/` pipeline, leakage tests.
 
-Still to do: repeating the evaluation over several seeds, optional decision-threshold analysis, final report.
+Still to do: final report.
 
 ## Tools
 
